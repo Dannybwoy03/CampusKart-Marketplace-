@@ -7,3 +7,8 @@ next.config.mjs
 tailwind.config.ts
 tsconfig.json
 vercel.json
+package.json
+package-lock.json
+.env.local
+.env.example
+README.md
