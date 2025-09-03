@@ -1,0 +1,2 @@
+            <span>₵{item.product.price * item.quantity}</span>
+          <span>₵{cart.items.filter((i: any) => !i.saveForLater).reduce((sum: number, item: any) => sum + item.product.price * item.quantity, 0).toFixed(2)}</span>

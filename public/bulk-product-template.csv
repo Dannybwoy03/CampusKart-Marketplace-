@@ -1,0 +1,4 @@
+title,price,description,category,condition,imageUrl,variants
+"Airforce",500,"Nice shoes","Shoes","New","https://example.com/airforce.jpg","[{"size":"42","color":"White","stock":5,"priceDiff":0}]"
+"Sneaker",400,"Cool sneaker","Shoes","Used","https://example.com/sneaker.jpg","[]"
+"Book",50,"Math textbook","Books","New","","[]" 
