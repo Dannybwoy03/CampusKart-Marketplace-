@@ -1,0 +1,16 @@
+# Ignore frontend files
+app/
+components/
+public/
+styles/
+next.config.mjs
+tailwind.config.ts
+tsconfig.json
+vercel.json
+package.json
+package-lock.json
+.env.local
+.env.example
+README.md
+.git/
+.gitignore
