@@ -7,8 +7,9 @@
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-    "railway:build": "cd server && npm install",
-    "railway:start": "cd server && npm start"
+    "railway:build": "cd server && npm install && npx prisma generate",
+    "railway:start": "cd server && npm start",
+    "postinstall": "cd server && npm install && npx prisma generate"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
