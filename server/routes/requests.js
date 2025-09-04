@@ -90,9 +90,9 @@ router.post("/", authenticateJWT, async (req, res) => {
     if (existingRequest) {
       // If request exists and is pending/accepted, don't allow new request
       if (existingRequest.status === "pending" || existingRequest.status === "accepted") {
-        return res.status(400).json({ error: "Request already exists for this product" });
-      }
-      
+      return res.status(400).json({ error: "Request already exists for this product" });
+    }
+
       // If request was rejected or cancelled, update it to pending
       const updatedRequest = await prisma.request.update({
         where: { id: existingRequest.id },
