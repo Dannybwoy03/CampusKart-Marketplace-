@@ -1,6 +1,6 @@
 FROM node:18-alpine
 
-# Install necessary packages
+# Install necessary packages - Updated for Railway
 RUN apk add --no-cache openssl
 
 WORKDIR /app
@@ -17,6 +17,9 @@ COPY . .
 
 # Generate Prisma client with proper permissions
 RUN cd server && chmod +x node_modules/.bin/prisma && npx prisma generate
+
+# Alternative: Use npm run build if direct prisma fails
+# RUN cd server && npm run build
 
 # Expose port
 EXPOSE 5000
