@@ -40,6 +40,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const login = (newToken: string) => {
     console.log("Login called with new token"); // Debug log
+    // Clear any previous user's client-scoped data first
+    try {
+      if (typeof window !== 'undefined' && (window as any).clearCart) {
+        (window as any).clearCart();
+      } else {
+        localStorage.removeItem('cart');
+      }
+      // Reset notifications panel state if the app exposed a helper
+      if (typeof window !== 'undefined' && (window as any).refetchNotifications) {
+        (window as any).refetchNotifications();
+      }
+    } catch {}
+
     localStorage.setItem("jwt", newToken);
     setToken(newToken);
     const decodedUser = jwtDecode<User>(newToken);
@@ -48,7 +61,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = () => {
+    // Remove auth and user-scoped client data
     localStorage.removeItem("jwt");
+    try {
+      if (typeof window !== 'undefined' && (window as any).clearCart) {
+        (window as any).clearCart();
+      } else {
+        localStorage.removeItem('cart');
+      }
+      // Clear notifications immediately in UI
+      if (typeof window !== 'undefined' && (window as any).refetchNotifications) {
+        (window as any).refetchNotifications();
+      }
+    } catch {}
     setToken(null);
     setUser(null);
   };

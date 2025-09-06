@@ -15,6 +15,9 @@ export function authenticateJWT(req, res, next) {
   }
 }
 
+// Alias for authenticateToken
+export const authenticateToken = authenticateJWT;
+
 export function requireAdmin(req, res, next) {
   if (!req.user || !req.user.isAdmin) {
     return res.status(403).json({ error: "Admin access required" });

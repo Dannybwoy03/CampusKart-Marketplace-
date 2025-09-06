@@ -28,6 +28,7 @@ export default function CheckoutPage() {
   const { toast } = useToast ? useToast() : { toast: () => {} };
   
   const [loading, setLoading] = useState(false);
+  const [paystackLoaded, setPaystackLoaded] = useState(false);
   const [product, setProduct] = useState<any>(null);
   const [formData, setFormData] = useState<CheckoutForm>({
     fullName: "",
@@ -47,10 +48,26 @@ export default function CheckoutPage() {
       return;
     }
 
+    // Load Paystack script
+    const loadPaystackScript = () => {
+      if (document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]')) {
+        setPaystackLoaded(true);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => setPaystackLoaded(true);
+      script.onerror = () => console.error('Failed to load Paystack script');
+      document.head.appendChild(script);
+    };
+
+    loadPaystackScript();
+
     if (productId) {
       fetchProduct();
     } else {
-      // Load cart items
       loadCartItems();
     }
   }, [productId, user]);
@@ -94,16 +111,23 @@ export default function CheckoutPage() {
 
     setLoading(true);
     try {
+      // Check if Paystack is loaded
+      if (!paystackLoaded || typeof (window as any).PaystackPop === 'undefined') {
+        toast({ title: "Payment Error", description: "Payment system is still loading. Please try again in a moment." });
+        setLoading(false);
+        return;
+      }
+
       // Initialize Paystack payment
       const handler = (window as any).PaystackPop.setup({
         key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_key",
         email: formData.email,
         amount: product.price * 100, // Paystack expects amount in kobo
-        currency: "GHS",
+        currency: "GHS", // Ghana Cedis - supported by MTN MoMo
         ref: `CAMPUSKART_${Date.now()}`,
-        callback: async (response: any) => {
+        callback: function(response: any) {
           // Payment successful, create order
-          await createOrder(response.reference);
+          createOrder(response.reference);
         },
         onClose: () => {
           toast({ title: "Payment cancelled", description: "Payment was cancelled by user" });
@@ -122,7 +146,7 @@ export default function CheckoutPage() {
       const orderData = {
         productId: product.id,
         buyerId: user?.userId || user?.id,
-        sellerId: product.seller?.id || product.seller,
+        sellerId: product.seller?.userId || product.seller?.id || product.seller,
         amount: product.price,
         paymentReference,
         shippingAddress: {
@@ -158,7 +182,7 @@ export default function CheckoutPage() {
         }
         
         toast({ title: "Order Placed!", description: "Your order has been placed successfully" });
-        router.push(`/dashboard/orders/${order.id}`);
+        router.push("/dashboard/orders");
       } else {
         throw new Error("Failed to create order");
       }

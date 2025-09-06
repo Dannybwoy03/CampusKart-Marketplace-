@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ interface Request {
 
 export default function RequestsPage() {
   const { user, token } = useAuth();
+  const router = useRouter();
   const { toast } = useToast ? useToast() : { toast: () => {} };
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
@@ -238,7 +240,7 @@ export default function RequestsPage() {
                   {isBuyer(request) && (
                     <Button 
                       className="mt-2 bg-green-600 hover:bg-green-700"
-                      onClick={() => window.location.href = `/dashboard/checkout?product=${request.productId}`}
+                      onClick={() => router.push(`/dashboard/checkout?product=${request.productId}`)}
                     >
                       Proceed to Payment
                     </Button>

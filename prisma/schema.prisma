@@ -17,18 +17,22 @@ model User {
   updatedAt                DateTime       @updatedAt
   role                     String         @default("BUYER")
   avatarUrl                String?
+  suspended                Boolean        @default(false)
+  cartItems                CartItem[]
+  Commission               Commission[]
   conversations            Conversation[] @relation("UserConversations")
   conversationParticipants Conversation[] @relation("Participants")
   messages                 Message[]
   notifications            Notification[]
   ordersAsBuyer            Order[]        @relation("BuyerOrders")
   ordersAsSeller           Order[]        @relation("SellerOrders")
+  Payout                   Payout[]
   products                 Product[]
-  sellerProfile            SellerProfile?
-  wishlist                 WishlistItem[]
+  ProductView              ProductView[]
   requestsAsBuyer          Request[]      @relation("BuyerRequests")
   requestsAsSeller         Request[]      @relation("SellerRequests")
-  cartItems                CartItem[]
+  sellerProfile            SellerProfile?
+  wishlist                 WishlistItem[]
 }
 
 model SellerProfile {
@@ -49,25 +53,28 @@ model SellerProfile {
 }
 
 model Product {
-  id            String         @id @default(cuid())
-  title         String
-  price         Float
-  description   String
-  category      String
-  condition     String
-  sellerId      String
-  createdAt     DateTime       @default(now())
-  status        String         @default("active")
-  reports       Int            @default(0)
-  requests      Int            @default(0)
-  updatedAt     DateTime       @updatedAt
-  views         Int            @default(0)
-  orders        Order[]
-  seller        User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  images        ProductImage[]
-  wishlistItems WishlistItem[]
+  id              String         @id @default(cuid())
+  title           String
+  price           Float
+  description     String
+  category        String
+  condition       String
+  sellerId        String
+  createdAt       DateTime       @default(now())
+  status          String         @default("active")
+  reports         Int            @default(0)
+  requests        Int            @default(0)
+  updatedAt       DateTime       @updatedAt
+  views           Int            @default(0)
+  featuredAt      DateTime?
+  isFeatured      Boolean        @default(false)
+  cartItems       CartItem[]
+  orders          Order[]
+  seller          User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  images          ProductImage[]
+  ProductView     ProductView[]
   productRequests Request[]
-  cartItems     CartItem[]
+  wishlistItems   WishlistItem[]
 }
 
 model ProductImage {
@@ -79,31 +86,48 @@ model ProductImage {
 }
 
 model Order {
-  id               String   @id @default(cuid())
-  status           String   @default("pending")
-  createdAt        DateTime @default(now())
+  id               String      @id @default(cuid())
+  status           String      @default("pending")
+  createdAt        DateTime    @default(now())
   shippingAddress  String
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime    @updatedAt
   amount           Float
   buyerId          String
   notes            String?
-  paymentReference String
+  paymentReference String?
   productId        String
   sellerId         String
-  buyer            User     @relation("BuyerOrders", fields: [buyerId], references: [id])
-  product          Product  @relation(fields: [productId], references: [id])
-  seller           User     @relation("SellerOrders", fields: [sellerId], references: [id])
+  adminAmount      Float       @default(0)
+  commissionAmount Float       @default(0)
+  deliveryStatus   String      @default("pending")
+  escrowStatus     String      @default("pending")
+  paymentMethod    String?
+  paymentStatus    String      @default("pending")
+  payoutReference  String?
+  payoutStatus     String      @default("pending")
+  requestId        String?
+  sellerAmount     Float       @default(0)
+  deliveredAt      DateTime?   @db.Timestamp(6)
+  autoReleaseDate  DateTime?   @db.Timestamp(6)
+  commissionRate   Float?      @default(0.05)
+  refundReason     String?
+  refundedAt       DateTime?   @db.Timestamp(6)
+  Commission       Commission?
+  buyer            User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  product          Product     @relation(fields: [productId], references: [id])
+  Request          Request?    @relation(fields: [requestId], references: [id])
+  seller           User        @relation("SellerOrders", fields: [sellerId], references: [id])
 }
 
 model Notification {
   id        String   @id @default(cuid())
   userId    String
   type      String
-  title     String
-  message   String
   data      String?
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+  message   String
+  title     String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -146,11 +170,12 @@ model Request {
   buyerId   String
   sellerId  String
   message   String?
-  status    String   @default("pending") // pending, accepted, rejected, cancelled
+  status    String   @default("pending")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  Order     Order[]
   buyer     User     @relation("BuyerRequests", fields: [buyerId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   seller    User     @relation("SellerRequests", fields: [sellerId], references: [id], onDelete: Cascade)
 
   @@unique([productId, buyerId])
@@ -163,8 +188,56 @@ model CartItem {
   quantity  Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+}
+
+model Commission {
+  id          String    @id @default(cuid())
+  orderId     String    @unique
+  sellerId    String
+  amount      Float
+  percentage  Float     @default(5.0)
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  collectedAt DateTime?
+  Order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  User        User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+}
+
+model Refund {
+  id          String    @id @default(cuid())
+  orderId     String    @unique
+  amount      Float
+  reason      String
+  status      String    @default("pending")
+  requestedBy String
+  approvedBy  String?
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+}
+
+model Payout {
+  id          String    @id
+  sellerId    String
+  amount      Float
+  status      String    @default("pending")
+  method      String
+  reference   String?
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+  User        User      @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+}
+
+model ProductView {
+  id        String   @id
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+  Product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId])
 }

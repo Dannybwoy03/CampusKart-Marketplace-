@@ -15,6 +15,36 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
 
+  const updateOrderStatus = async (orderId: string, newStatus: string) => {
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem("jwt") : null;
+      const res = await fetch(`http://localhost:5000/api/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (res.ok) {
+        // Refresh orders after update
+        const api = (p: string) => `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}${p}`;
+        const headers = { Authorization: `Bearer ${token}` } as any;
+        const ordRes = await fetch(api("/orders?role=seller"), { headers });
+        if (ordRes.ok) {
+          const ordersData = await ordRes.json();
+          setOrders(ordersData);
+        }
+        alert("Order status updated successfully!");
+      } else {
+        throw new Error("Failed to update order status");
+      }
+    } catch (error) {
+      alert("Failed to update order status");
+    }
+  };
+
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem("jwt") : null;
     if (!user || !token) return;
@@ -27,12 +57,17 @@ export default function Dashboard() {
         const [prodRes, reqRes, ordRes, convRes] = await Promise.all([
           fetch(api("/products/my"), { headers }),
           fetch(api("/requests"), { headers }),
-          fetch(api("/orders"), { headers }),
+          fetch(api("/orders?role=seller"), { headers }),
           fetch(api("/messages/conversations"), { headers })
         ]);
         if (prodRes.ok) setProducts(await prodRes.json());
         if (reqRes.ok) setRequests(await reqRes.json());
-        if (ordRes.ok) setOrders(await ordRes.json());
+        if (ordRes.ok) {
+          const ordersData = await ordRes.json();
+          console.log('📊 Dashboard Orders Data:', ordersData);
+          console.log('📊 Orders with released payments:', ordersData.filter((o: any) => o.paymentStatus === "released"));
+          setOrders(ordersData);
+        }
         if (convRes.ok) setConversations(await convRes.json());
       } catch {}
     })();
@@ -49,7 +84,10 @@ export default function Dashboard() {
     );
   }
 
-  const totalRevenue = Array.isArray(orders) ? orders.filter((o: any) => o.status === "paid").reduce((sum: number, o: any) => sum + (o.total || o.amount || 0), 0) : 0;
+  // Show both pending and released revenue for debugging
+  const releasedRevenue = Array.isArray(orders) ? orders.filter((o: any) => o.paymentStatus === "released").reduce((sum: number, o: any) => sum + (o.sellerAmount || o.amount * 0.95 || 0), 0) : 0;
+  const pendingRevenue = Array.isArray(orders) ? orders.filter((o: any) => o.paymentStatus === "paid" && o.status === "delivered").reduce((sum: number, o: any) => sum + (o.sellerAmount || o.amount * 0.95 || 0), 0) : 0;
+  const totalRevenue = releasedRevenue;
   const pendingRequests = Array.isArray(requests) ? requests.filter((r: any) => r.status === "pending").length : 0;
   const activeProducts = Array.isArray(products) ? products.filter((p: any) => p.status !== "removed").length : 0;
   const featuredProducts = Array.isArray(products) ? products.filter((p: any) => p.featured).length : 0;
@@ -69,7 +107,12 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">₵{Number(totalRevenue).toFixed(2)}</div>
-            <p className="text-xs text-blue-100">All time earnings</p>
+            <p className="text-xs text-blue-100">Released payments</p>
+            {pendingRevenue > 0 && (
+              <p className="text-xs text-blue-200 mt-1">
+                ₵{Number(pendingRevenue).toFixed(2)} pending release
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -292,25 +335,48 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {orders?.map((o: any) => (
+                    {orders && orders.length > 0 ? orders.map((o: any) => (
                       <tr key={o.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3 font-mono text-xs">{o.id}</td>
-                        <td className="p-3">{o.items?.length || 0} items</td>
-                        <td className="p-3 font-medium">₵{o.total || o.amount || 0}</td>
+                        <td className="p-3 font-mono text-xs">{o.id.slice(-8)}</td>
+                        <td className="p-3">1 item</td>
+                        <td className="p-3 font-medium">₵{o.amount || 0}</td>
                         <td className="p-3">
-                          <Badge variant={o.status === "paid" ? "default" : o.status === "pending" ? "secondary" : "outline"}>{o.status}</Badge>
+                          <Badge variant={o.status === "delivered" ? "default" : o.status === "pending" ? "secondary" : "outline"}>{o.status}</Badge>
                         </td>
                         <td className="p-3 text-sm">{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : ""}</td>
                         <td className="p-3">
                           <div className="flex gap-2">
-                            <Button size="sm" variant="outline">
+                            <Button size="sm" variant="outline" onClick={() => window.location.href = "/dashboard/orders"}>
                               <Eye className="h-3 w-3 mr-1" />
-                              View
+                              Manage
                             </Button>
+                            {o.status === "pending" && (
+                              <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateOrderStatus(o.id, "confirmed")}>
+                                Confirm
+                              </Button>
+                            )}
+                            {o.status === "confirmed" && (
+                              <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateOrderStatus(o.id, "shipped")}>
+                                Ship
+                              </Button>
+                            )}
+                            {o.status === "shipped" && (
+                              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateOrderStatus(o.id, "delivered")}>
+                                Deliver
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-gray-500">
+                          <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                          <p>No orders yet</p>
+                          <p className="text-sm">Orders will appear here when customers purchase your products</p>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

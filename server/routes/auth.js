@@ -339,6 +339,32 @@ router.post("/notifications/:id/read", authenticateJWT, async (req, res) => {
   }
 });
 
+// Delete a notification
+router.delete("/notifications/:id", authenticateJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId || req.user?.id;
+    
+    // Verify the notification belongs to the user
+    const notification = await prisma.notification.findFirst({
+      where: { id, userId }
+    });
+    
+    if (!notification) {
+      return res.status(404).json({ error: "Notification not found" });
+    }
+    
+    await prisma.notification.delete({
+      where: { id }
+    });
+    
+    res.json({ success: true, message: "Notification deleted successfully" });
+  } catch (error) {
+    console.error("Delete notification error:", error);
+    res.status(500).json({ error: "Failed to delete notification" });
+  }
+});
+
 // Request password reset (minimal no-op for now)
 router.post("/reset-password", async (req, res) => {
   const { email } = req.body || {};

@@ -1,19 +1,21 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "npx prisma generate && next build",
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-    "railway:build": "cd server && npm install && npx prisma generate",
-    "railway:start": "cd server && npm start",
-    "postinstall": "cd server && npm install && npx prisma generate"
+    "postinstall": "npx prisma generate",
+    "vercel-build": "npx prisma generate && npx prisma db push && next build"
   },
   "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
     "@hookform/resolvers": "^3.9.1",
-    "@prisma/client": "5.22.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
     "@radix-ui/react-aspect-ratio": "1.1.1",
@@ -47,7 +49,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
-    "date-fns": "4.1.0",
+    "date-fns": "^3.6.0",
     "embla-carousel-react": "8.5.1",
     "framer-motion": "^12.23.6",
     "input-otp": "1.4.1",
@@ -83,11 +85,10 @@
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "postcss": "^8.5",
     "prisma": "5.22.0",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5"
+    "typescript": "^5",
+    "concurrently": "^9.0.1"
   }
 }

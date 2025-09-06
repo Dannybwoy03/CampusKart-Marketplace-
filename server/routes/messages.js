@@ -68,6 +68,19 @@ router.post("/conversations", authenticateJWT, async (req, res) => {
       return res.status(400).json({ error: "buyerId and sellerId must differ" });
     }
 
+    // Verify both users exist in the database
+    const [buyer, seller] = await Promise.all([
+      prisma.user.findUnique({ where: { id: buyerId } }),
+      prisma.user.findUnique({ where: { id: sellerId } })
+    ]);
+
+    if (!buyer) {
+      return res.status(400).json({ error: "Buyer user not found" });
+    }
+    if (!seller) {
+      return res.status(400).json({ error: "Seller user not found" });
+    }
+
     // Check if conversation already exists between these two users
     const existing = await prisma.conversation.findFirst({
       where: {
@@ -161,6 +174,10 @@ router.post("/conversations/:conversationId/messages", authenticateJWT, async (r
           { buyerId: authUserId },
           { sellerId: authUserId }
         ]
+      },
+      include: {
+        buyer: { select: { id: true, name: true } },
+        seller: { select: { id: true, name: true } }
       }
     });
 
@@ -185,6 +202,25 @@ router.post("/conversations/:conversationId/messages", authenticateJWT, async (r
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { updatedAt: new Date() }
+    });
+
+    // Create notification for the recipient
+    const recipientId = authUserId === conversation.buyerId ? conversation.sellerId : conversation.buyerId;
+    const senderName = message.sender.name || 'Someone';
+    
+    await prisma.notification.create({
+      data: {
+        userId: recipientId,
+        type: 'message',
+        title: 'New Message',
+        message: `${senderName} sent you a message: "${content.trim()}"`,
+        data: JSON.stringify({
+          conversationId,
+          messageId: message.id,
+          senderId: authUserId
+        }),
+        isRead: false
+      }
     });
 
     res.status(201).json(message);

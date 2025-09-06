@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthContext";
 
 export default function CartPage() {
   const { state, dispatch } = useApp();
+  const { user, token } = useAuth();
   const cart = state.cart || [];
   const [showCheckout, setShowCheckout] = useState(false);
   const [name, setName] = useState("");
@@ -16,27 +18,195 @@ export default function CartPage() {
   const [submitting, setSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [paystackLoaded, setPaystackLoaded] = useState(false);
   const router = useRouter();
+
+  // Fetch cart items from server
+  const fetchCartItems = async () => {
+    if (!user || !token) return;
+    
+    try {
+      const res = await fetch("http://localhost:5000/api/cart", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (res.ok) {
+        const serverCartItems = await res.json();
+        // Update local cart state with server data
+        dispatch({ type: "CLEAR_CART" });
+        serverCartItems.forEach((item: any) => {
+          // Add cart item ID to product for removal functionality
+          const productWithCartId = {
+            ...item.product,
+            cartItemId: item.id
+          };
+          dispatch({ type: "ADD_TO_CART", payload: productWithCartId });
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch cart items:", error);
+    }
+  };
 
   // Fix hydration mismatch by only rendering on client
   useEffect(() => {
     setIsClient(true);
-  }, []);
+    
+    // Fetch cart items when component mounts
+    if (user && token) {
+      fetchCartItems();
+    }
+    
+    // Load Paystack script
+    const loadPaystackScript = () => {
+      // Check if script already exists
+      if (document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]')) {
+        setPaystackLoaded(true);
+        return;
+      }
 
-  const handleRemove = (id: string) => {
-    dispatch({ type: "REMOVE_FROM_CART", payload: id });
+      const script = document.createElement('script');
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => {
+        setPaystackLoaded(true);
+      };
+      script.onerror = () => {
+        console.error('Failed to load Paystack script');
+      };
+      document.head.appendChild(script);
+    };
+
+    loadPaystackScript();
+    
+    return () => {
+      // Cleanup script on unmount
+      const existingScript = document.querySelector('script[src="https://js.paystack.co/v1/inline.js"]');
+      if (existingScript) {
+        document.head.removeChild(existingScript);
+      }
+    };
+  }, [user, token]);
+
+  const handleRemove = async (item: any) => {
+    try {
+      // Use cartItemId for server deletion
+      const cartItemId = item.cartItemId;
+      if (!cartItemId) {
+        // If no cartItemId, try to find it by refetching cart items
+        console.log("No cart item ID found, refetching cart...");
+        await fetchCartItems();
+        return;
+      }
+      
+      const res = await fetch(`http://localhost:5000/api/cart/${cartItemId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (res.ok) {
+        // Remove from local state using product ID
+        dispatch({ type: "REMOVE_FROM_CART", payload: item.id });
+      }
+    } catch (error) {
+      console.error("Failed to remove item from cart:", error);
+    }
   };
 
   const total = cart.reduce((sum, item) => sum + (item.price || 0), 0);
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!cart.length || !name || !email || !address) return;
+    
     setSubmitting(true);
-    setTimeout(() => {
-      setOrderSuccess(true);
-      setShowCheckout(false);
+    
+    try {
+      // For now, handle single item from cart (first item)
+      const item = cart[0];
+      
+      // Check if Paystack is loaded
+      if (!paystackLoaded || typeof (window as any).PaystackPop === 'undefined') {
+        console.error('Paystack script not loaded yet');
+        setSubmitting(false);
+        // Show user-friendly message
+        alert('Payment system is still loading. Please try again in a moment.');
+        return;
+      }
+      
+      // Initialize Paystack payment
+      const handler = (window as any).PaystackPop.setup({
+        key: process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY || "pk_test_your_paystack_key",
+        email: email,
+        amount: item.price * 100, // Paystack expects amount in kobo
+        currency: "GHS", // Ghana Cedis - supported by MTN MoMo
+        ref: `CAMPUSKART_${Date.now()}`,
+        callback: function(response: any) {
+          // Payment successful, create order
+          createOrder(response.reference, item);
+        },
+        onClose: () => {
+          setSubmitting(false);
+        }
+      });
+      handler.openIframe();
+    } catch (error) {
+      console.error('Payment initialization failed:', error);
       setSubmitting(false);
-    }, 1500);
+    }
+  };
+
+  const createOrder = async (paymentReference: string, item: any) => {
+    try {
+      const orderData = {
+        productId: item.id,
+        paymentReference,
+        shippingAddress: {
+          fullName: name,
+          email: email,
+          address: address,
+        },
+        notes: "",
+        status: "pending"
+      };
+
+      const response = await fetch("http://localhost:5000/api/orders", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(orderData)
+      });
+
+      if (response.ok) {
+        const order = await response.json();
+        
+        // Clear cart
+        dispatch({ type: "CLEAR_CART" });
+        
+        // Show success
+        setOrderSuccess(true);
+        setShowCheckout(false);
+        
+        // Redirect to orders page after a delay
+        setTimeout(() => {
+          router.push('/dashboard/orders');
+        }, 2000);
+      } else {
+        const errorData = await response.text();
+        console.error('Order creation failed:', response.status, errorData);
+        throw new Error(`Failed to create order: ${response.status} - ${errorData}`);
+      }
+    } catch (error) {
+      console.error('Order creation failed:', error);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // Show loading state during hydration
@@ -46,7 +216,7 @@ export default function CartPage() {
         <div className="w-full flex items-center mb-4">
           <Link
             href="#"
-            onClick={e => { e.preventDefault(); router.back(); }}
+            onClick={(e: React.MouseEvent) => { e.preventDefault(); router.back(); }}
             className="text-blue-600 font-medium text-sm pl-2"
           >
             &larr; Back to Previous Page
@@ -69,7 +239,7 @@ export default function CartPage() {
       <div className="w-full flex items-center mb-4">
         <Link
           href="#"
-          onClick={e => { e.preventDefault(); router.back(); }}
+          onClick={(e: React.MouseEvent) => { e.preventDefault(); router.back(); }}
           className="text-blue-600 font-medium text-sm pl-2"
         >
           &larr; Back to Previous Page
@@ -113,7 +283,11 @@ export default function CartPage() {
                   transition={{ duration: 0.3 }}
                 >
                   <div className="flex items-center gap-4 w-full">
-                    <img src={item.imageUrl || item.image || "/placeholder.jpg"} alt={item.title} className="w-16 h-16 object-contain rounded bg-secondary" />
+                    <img 
+                      src={item.images?.[0]?.url || item.image || "/placeholder.svg"} 
+                      alt={item.title} 
+                      className="w-16 h-16 object-cover rounded bg-secondary" 
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold truncate text-primary text-lg">{item.title}</div>
                       <div className="text-sm text-foreground font-semibold">₵{item.price}</div>
@@ -122,7 +296,7 @@ export default function CartPage() {
                   <Button
                     variant="outline"
                     className="border-primary text-primary hover:bg-primary/10 transition"
-                    onClick={() => handleRemove(item.id)}
+                    onClick={() => handleRemove(item)}
                   >
                     Remove
                   </Button>
@@ -166,7 +340,7 @@ export default function CartPage() {
                     className="w-full border rounded p-2 focus:ring-2 focus:ring-primary"
                     placeholder="Full Name"
                     value={name}
-                    onChange={e => setName(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
                     required
                   />
                   <input
@@ -174,14 +348,14 @@ export default function CartPage() {
                     placeholder="Email"
                     type="email"
                     value={email}
-                    onChange={e => setEmail(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                     required
                   />
                   <input
                     className="w-full border rounded p-2 focus:ring-2 focus:ring-primary"
                     placeholder="Address"
                     value={address}
-                    onChange={e => setAddress(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
                     required
                   />
                   <Button

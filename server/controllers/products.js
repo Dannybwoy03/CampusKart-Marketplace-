@@ -5,6 +5,9 @@ import cloudinary from "../utils/cloudinary.js";
 export async function listProducts(req, res) {
   try {
     const products = await prisma.product.findMany({
+      where: {
+        status: { not: 'removed' },
+      },
       include: {
         seller: {
           select: { id: true, name: true, email: true }
@@ -34,7 +37,7 @@ export async function getProduct(req, res) {
       }
     });
     
-    if (!product) {
+    if (!product || product.status === 'removed') {
       return res.status(404).json({ error: "Product not found" });
     }
     
@@ -222,7 +225,7 @@ export async function searchProducts(req, res) {
   try {
     const { q, category, minPrice, maxPrice, condition } = req.query;
     
-    const where = {};
+    const where = { status: { not: 'removed' } };
     
     if (q) {
       where.OR = [

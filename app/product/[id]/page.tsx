@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useApp } from "@/lib/store";
 import { addToCart } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { ShoppingCart, MessageCircle, Heart, Share2 } from "lucide-react";
+import { ShoppingCart, MessageCircle, Heart, Share2, ChevronLeft, ChevronRight } from "lucide-react";
 
 export default function ProductDetailPage() {
   const params = useParams();
@@ -22,6 +22,7 @@ export default function ProductDetailPage() {
   const [addingToCart, setAddingToCart] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   useEffect(() => {
     const id = Array.isArray(params?.id) ? params.id[0] : (params as any)?.id;
@@ -73,6 +74,22 @@ export default function ProductDetailPage() {
       setRequesting(false);
     }
   };
+
+  const handleDirectPayment = () => {
+    if (!user || !product) {
+      toast({ title: "Login required", description: "Please login to make payment." });
+      return;
+    }
+    
+    if (isOwner) {
+      toast({ title: "Not allowed", description: "You can't buy your own product." });
+      return;
+    }
+
+    // Redirect to checkout page with product ID
+    router.push(`/dashboard/checkout?product=${product.id}`);
+  };
+
 
   const handleAddToCart = async () => {
     if (!user) {
@@ -133,15 +150,83 @@ export default function ProductDetailPage() {
     router.push(`/product/${product.id}/edit`);
   };
 
+  const nextImage = () => {
+    if (product.images && product.images.length > 1) {
+      setCurrentImageIndex((prev) => (prev + 1) % product.images.length);
+    }
+  };
+
+  const prevImage = () => {
+    if (product.images && product.images.length > 1) {
+      setCurrentImageIndex((prev) => (prev - 1 + product.images.length) % product.images.length);
+    }
+  };
+
   if (loading) return <div className="p-6">Loading...</div>;
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!product) return <div className="p-6">Not found</div>;
 
+  const images = product.images || [];
+  const hasMultipleImages = images.length > 1;
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <img src={product.images?.[0]?.url || "/placeholder-product.jpg"} alt={product.title} className="w-full rounded-lg" />
+        <div className="space-y-4">
+          {/* Main Image Display */}
+          <div className="relative">
+            <img 
+              src={images[currentImageIndex]?.url || "/placeholder-product.jpg"} 
+              alt={product.title} 
+              className="w-full rounded-lg object-cover h-96"
+            />
+            
+            {/* Navigation Arrows */}
+            {hasMultipleImages && (
+              <>
+                <button
+                  onClick={prevImage}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={nextImage}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 transition-colors"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </>
+            )}
+            
+            {/* Image Counter */}
+            {hasMultipleImages && (
+              <div className="absolute bottom-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-sm">
+                {currentImageIndex + 1} / {images.length}
+              </div>
+            )}
+          </div>
+          
+          {/* Thumbnail Gallery */}
+          {hasMultipleImages && (
+            <div className="flex gap-2 overflow-x-auto">
+              {images.map((image: any, index: number) => (
+                <button
+                  key={index}
+                  onClick={() => setCurrentImageIndex(index)}
+                  className={`flex-shrink-0 w-20 h-20 rounded border-2 overflow-hidden ${
+                    currentImageIndex === index ? 'border-blue-500' : 'border-gray-200'
+                  }`}
+                >
+                  <img 
+                    src={image.url} 
+                    alt={`${product.title} ${index + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <h1 className="text-3xl font-bold mb-2">{product.title}</h1>
@@ -150,9 +235,9 @@ export default function ProductDetailPage() {
 
           {!isOwner && user && (
             <div className="space-y-4">
-              <div className="flex gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Button 
-                  className="bg-green-600 hover:bg-green-700 flex-1" 
+                  className="bg-green-600 hover:bg-green-700" 
                   onClick={handleAddToCart} 
                   disabled={addingToCart || product.status === "sold"}
                 >
@@ -160,12 +245,18 @@ export default function ProductDetailPage() {
                   {addingToCart ? "Adding..." : "Add to Cart"}
                 </Button>
                 <Button 
-                  className="bg-blue-600 hover:bg-blue-700 flex-1" 
+                  className="bg-blue-600 hover:bg-blue-700" 
                   onClick={handleRequest} 
                   disabled={requesting}
                 >
                   <MessageCircle className="h-4 w-4 mr-2" />
                   {requesting ? "Requesting..." : "Request to Buy"}
+                </Button>
+                <Button 
+                  className="bg-orange-600 hover:bg-orange-700" 
+                  onClick={handleDirectPayment}
+                >
+                  💳 Buy Now
                 </Button>
               </div>
               
@@ -178,6 +269,7 @@ export default function ProductDetailPage() {
               <div className="text-sm text-gray-600">
                 <p><strong>Add to Cart:</strong> Add this item to your cart for checkout</p>
                 <p><strong>Request to Buy:</strong> Send a direct request to the seller</p>
+                <p><strong>Buy Now:</strong> Make immediate payment with MTN MoMo</p>
               </div>
             </div>
           )}

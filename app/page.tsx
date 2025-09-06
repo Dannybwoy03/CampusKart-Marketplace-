@@ -34,7 +34,8 @@ export default function HomePage() {
             ...product,
             image: product.images?.[0]?.url || "/placeholder.svg",
             imageUrl: product.images?.[0]?.url || "/placeholder.svg",
-            seller: product.seller?.name || product.seller?.email || "Unknown",
+            seller: product.seller, // Keep the full seller object with ID
+            sellerName: product.seller?.name || product.seller?.email || "Unknown", // Add display name separately
             name: product.title,
             status: product.status || "active"
           }));

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { ShoppingCart, Bell, AlertCircle, Menu, X, User, LogOut, Settings } from "lucide-react";
+import { ShoppingCart, Bell, AlertCircle, Menu, X, User, LogOut, Settings, Trash2, Reply } from "lucide-react";
 import { useAuth } from "./AuthContext";
 import { useApp } from "@/lib/store";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -88,7 +88,42 @@ export default function Navbar() {
       console.warn("Error marking notification as read:", error);
     }
   };
+
+  const handleDeleteNotification = async (notifId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the read action
+    try {
+      const token = localStorage.getItem("jwt");
+      if (!token) return;
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/auth/notifications/${notifId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       
+      if (res.ok) {
+        setNotifications((n: any) => n.filter((x: any) => x.id !== notifId));
+      }
+    } catch (error) {
+      console.warn("Error deleting notification:", error);
+    }
+  };
+
+  const handleReplyToMessage = async (notification: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      // Parse the notification data to get conversation ID
+      const notificationData = JSON.parse(notification.data || '{}');
+      const conversationId = notificationData.conversationId;
+      
+      if (conversationId) {
+        // Navigate to a chat page or open chat modal
+        window.location.href = `/dashboard/messages?conversation=${conversationId}`;
+      }
+    } catch (error) {
+      console.warn("Error opening chat:", error);
+    }
+  };
+
   const handleBecomeSellerClick = (e: React.MouseEvent) => {
     if (!user) {
       e.preventDefault();
@@ -182,6 +217,15 @@ export default function Navbar() {
                   </Link>
             );
           })}
+              {/* Wishlist link for authenticated users */}
+              {user && (
+                <Link
+                  href="/dashboard/wishlist"
+                  className="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200 hover:bg-blue-900/30"
+                >
+                  Wishlist
+                </Link>
+              )}
             </div>
 
             {/* Right side - User actions */}
@@ -325,11 +369,30 @@ export default function Navbar() {
                 {notifications.map((n: any, i: number) => (
                   <div 
                     key={i} 
-                    className={`px-3 py-3 border-b text-sm cursor-pointer transition-colors ${n.isRead ? 'bg-gray-50 text-gray-600' : 'bg-blue-50 border-l-4 border-l-blue-500'}`}
+                    className={`px-3 py-3 border-b text-sm cursor-pointer transition-colors relative ${n.isRead ? 'bg-gray-50 text-gray-600' : 'bg-blue-50 border-l-4 border-l-blue-500'}`}
                     onClick={() => handleViewNotification(n)}
                   >
-                    <div className="font-semibold text-gray-900 mb-1">{n.title || n.type}</div>
-                    <div className="text-gray-700 mb-2">{n.message}</div>
+                    <div className="absolute top-2 right-2 flex space-x-1">
+                      {/* Reply button for message notifications */}
+                      {n.type === 'message' && (
+                        <button
+                          onClick={(e) => handleReplyToMessage(n, e)}
+                          className="text-blue-500 hover:text-blue-700 transition-colors p-1 rounded-full hover:bg-blue-100"
+                          title="Reply to message"
+                        >
+                          <Reply className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => handleDeleteNotification(n.id, e)}
+                        className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-gray-200"
+                        title="Delete notification"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="font-semibold text-gray-900 mb-1 pr-16">{n.title || n.type}</div>
+                    <div className="text-gray-700 mb-2 pr-16">{n.message}</div>
                     <div className="text-xs text-gray-500">
                       {new Date(n.createdAt).toLocaleString()}
                     </div>

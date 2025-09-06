@@ -13,6 +13,7 @@ model User {
   email                    String         @unique
   password                 String
   isAdmin                  Boolean        @default(false)
+  suspended                Boolean        @default(false)
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
   role                     String         @default("BUYER")
@@ -29,6 +30,7 @@ model User {
   requestsAsBuyer          Request[]      @relation("BuyerRequests")
   requestsAsSeller         Request[]      @relation("SellerRequests")
   cartItems                CartItem[]
+  paystackRecipientCode    String?
 }
 
 model SellerProfile {
@@ -42,6 +44,8 @@ model SellerProfile {
   bankAccountName     String?
   bankAccountNumber   String?
   bankName            String?
+  bankCode            String?
+  accountNumber       String?
   mtnMomoNumber       String?
   otherPaymentDetails String?
   telecelCashNumber   String?
@@ -79,20 +83,33 @@ model ProductImage {
 }
 
 model Order {
-  id               String   @id @default(cuid())
-  status           String   @default("pending")
-  createdAt        DateTime @default(now())
+  id               String      @id @default(cuid())
+  status           String      @default("pending")
+  createdAt        DateTime    @default(now())
   shippingAddress  String
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime    @updatedAt
   amount           Float
   buyerId          String
   notes            String?
   paymentReference String
   productId        String
   sellerId         String
-  buyer            User     @relation("BuyerOrders", fields: [buyerId], references: [id])
-  product          Product  @relation(fields: [productId], references: [id])
-  seller           User     @relation("SellerOrders", fields: [sellerId], references: [id])
+  paymentStatus    String      @default("pending") // pending, paid, released, refunded
+  deliveredAt      DateTime?
+  autoReleaseDate  DateTime?
+  commissionRate   Float       @default(0.05) // 5% commission
+  commissionAmount Float?
+  sellerAmount     Float?
+  refundReason     String?
+  refundedAt       DateTime?
+  transferReference String?
+  transferredAt    DateTime?
+  paymentMethod    String?
+  buyer            User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  product          Product     @relation(fields: [productId], references: [id])
+  seller           User        @relation("SellerOrders", fields: [sellerId], references: [id])
+  commission       Commission?
+  refund           Refund?
 }
 
 model Notification {
@@ -167,4 +184,28 @@ model CartItem {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([userId, productId])
+}
+
+model Commission {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  amount    Float
+  rate      Float    @default(0.05)
+  status    String   @default("pending") // pending, collected
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Refund {
+  id          String    @id @default(cuid())
+  orderId     String    @unique
+  amount      Float
+  reason      String
+  status      String    @default("pending") // pending, approved, rejected, processed
+  requestedBy String    // buyerId who requested refund
+  approvedBy  String?   // adminId who approved
+  createdAt   DateTime  @default(now())
+  processedAt DateTime?
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }

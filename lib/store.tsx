@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { createContext, useContext, useReducer, type ReactNode } from "react"
+import { createContext, useContext, useReducer, type ReactNode, type Dispatch } from "react"
 
 // Types
 interface Product {
@@ -20,6 +20,8 @@ interface Product {
   views: number
   requests: number
   reports: number
+  cartItemId?: string // Add cartItemId for cart functionality
+  images?: Array<{ url: string }> // Add images array for server data
 }
 
 interface User {
@@ -68,6 +70,7 @@ type AppAction =
   | { type: "UPDATE_REQUEST"; payload: PurchaseRequest }
   | { type: "ADD_TO_CART"; payload: Product }
   | { type: "REMOVE_FROM_CART"; payload: string }
+  | { type: "CLEAR_CART" }
 
 // Initial state
 const initialCart = typeof window !== 'undefined' && localStorage.getItem('cart')
@@ -246,13 +249,17 @@ function appReducer(state: AppState, action: AppAction): AppState {
       }
     case "ADD_TO_CART":
       if (state.cart.some((p) => p.id === action.payload.id)) return state;
-      const updatedCart = [...state.cart, action.payload];
+      // Preserve all properties including cartItemId
+      const updatedCart = [...state.cart, { ...action.payload }];
       if (typeof window !== 'undefined') localStorage.setItem('cart', JSON.stringify(updatedCart));
       return { ...state, cart: updatedCart };
     case "REMOVE_FROM_CART":
       const filteredCart = state.cart.filter((p) => p.id !== action.payload);
       if (typeof window !== 'undefined') localStorage.setItem('cart', JSON.stringify(filteredCart));
       return { ...state, cart: filteredCart };
+    case "CLEAR_CART":
+      if (typeof window !== 'undefined') localStorage.removeItem('cart');
+      return { ...state, cart: [] };
     default:
       return state
   }
@@ -261,7 +268,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
 // Context
 const AppContext = createContext<{
   state: AppState
-  dispatch: React.Dispatch<AppAction>
+  dispatch: Dispatch<AppAction>
 } | null>(null)
 
 // Provider
@@ -270,6 +277,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ...initialState,
     myListings: initialState.products.filter((p) => p.seller === initialState.user?.name),
   })
+
+  // Expose a global helper to clear the cart from anywhere (e.g., on logout)
+  if (typeof window !== 'undefined') {
+    (window as any).clearCart = () => dispatch({ type: "CLEAR_CART" });
+  }
 
   return <AppContext.Provider value={{ state, dispatch }}>{children}</AppContext.Provider>
 }

@@ -20,13 +20,20 @@ interface Product {
   price: number
   image: string
   category: string
-  seller: string
+  seller: {
+    id: string;
+    name?: string;
+    email?: string;
+  } | string
+  sellerName?: string
   status: "active" | "sold" | "pending"
   views: number
   requests: number
   imageUrl?: string;
   description?: string;
   condition?: string;
+  postedDate?: string;
+  reports?: any[];
 }
 
 interface ProductCardProps {
@@ -107,7 +114,35 @@ export default function ProductCard({ product, reviewCount = 0, avgRating = 0 }:
     setShowChat(true);
     setChatLoading(true);
     try {
-      const convo = await startConversation(user.userId, product.seller?.id || product.seller, token);
+      // Debug: Log product seller information
+      console.log("Full product object:", product);
+      console.log("Product seller:", product.seller);
+      console.log("Product seller type:", typeof product.seller);
+      
+      // Get seller ID - products have a sellerId field
+      let sellerId;
+      
+      // First try to get from seller object
+      if (typeof product.seller === 'object' && product.seller?.id) {
+        sellerId = product.seller.id;
+      } 
+      // Then try the sellerId field on the product (this is the correct field from Prisma schema)
+      else if ((product as any).sellerId) {
+        sellerId = (product as any).sellerId;
+      }
+      else {
+        console.error("Seller info issue:", { 
+          seller: product.seller, 
+          sellerId: (product as any).sellerId,
+          fullProduct: product 
+        });
+        toast({ title: "Error", description: "Seller information not available." });
+        return;
+      }
+      
+      console.log("Using seller ID:", sellerId);
+      
+      const convo = await startConversation(user.userId, sellerId, token);
       setConversationId(convo.id);
       const msgs = await getMessages(convo.id, token);
       setMessages(msgs);
@@ -119,10 +154,18 @@ export default function ProductCard({ product, reviewCount = 0, avgRating = 0 }:
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !conversationId) return;
-    const msg = await sendMessage(conversationId, user.userId, newMessage, token);
-    setMessages([...messages, msg]);
-    setNewMessage("");
+    if (!newMessage.trim() || !conversationId || !user) return;
+    
+    try {
+      console.log("Sending message:", { conversationId, userId: user.userId, message: newMessage });
+      const msg = await sendMessage(conversationId, user.userId, newMessage, token);
+      console.log("Message sent successfully:", msg);
+      setMessages([...messages, msg]);
+      setNewMessage("");
+    } catch (error) {
+      console.error("Error sending message:", error);
+      toast({ title: "Error", description: "Failed to send message" });
+    }
   };
 
   const handleAddToCart = async (e?: React.MouseEvent) => {
@@ -142,7 +185,7 @@ export default function ProductCard({ product, reviewCount = 0, avgRating = 0 }:
     setAddingToCart(true);
     try {
       // First add to local state for immediate UI feedback
-      dispatch({ type: "ADD_TO_CART", payload: product });
+      dispatch({ type: "ADD_TO_CART", payload: product as any });
       
       // Then sync with server
       await addToCart(product.id, 1, token);
@@ -199,7 +242,7 @@ export default function ProductCard({ product, reviewCount = 0, avgRating = 0 }:
                   <div className="text-gray-400 text-center">No messages yet.</div>
                 ) : (
                   messages.map((msg, idx) => (
-                    <div key={idx} className={`mb-2 ${msg.senderId === user.userId ? "text-right" : "text-left"}`}>
+                    <div key={idx} className={`mb-2 ${msg.senderId === user?.userId ? "text-right" : "text-left"}`}>
                       <span className="inline-block px-2 py-1 rounded bg-blue-100 text-blue-900 max-w-xs">
                         {msg.content}
                       </span>
@@ -213,8 +256,25 @@ export default function ProductCard({ product, reviewCount = 0, avgRating = 0 }:
                   value={newMessage}
                   onChange={e => setNewMessage(e.target.value)}
                   placeholder="Type a message..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
                 />
-                <Button onClick={handleSendMessage} disabled={!newMessage.trim()}>Send</Button>
+                <Button 
+                  onClick={handleSendMessage} 
+                  disabled={!newMessage.trim()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                >
+                  Send
+                </Button>
               </div>
             </div>
           )}

@@ -8,7 +8,7 @@ const router = express.Router();
 router.get("/", authenticateJWT, async (req, res) => {
   try {
     const wishlist = await prisma.wishlistItem.findMany({
-      where: { userId: req.user.id },
+      where: { userId: req.user.userId || req.user.id },
       include: {
         product: {
           include: {
@@ -38,10 +38,12 @@ router.post("/", authenticateJWT, async (req, res) => {
       return res.status(400).json({ error: "Product ID is required" });
     }
 
+    const userId = req.user.userId || req.user.id;
+    
     // Check if already in wishlist
     const existing = await prisma.wishlistItem.findFirst({
       where: {
-        userId: req.user.id,
+        userId: userId,
         productId: productId
       }
     });
@@ -52,7 +54,7 @@ router.post("/", authenticateJWT, async (req, res) => {
 
     const wishlistItem = await prisma.wishlistItem.create({
       data: {
-        userId: req.user.id,
+        userId: userId,
         productId: productId
       },
       include: {
@@ -74,7 +76,7 @@ router.delete("/:productId", authenticateJWT, async (req, res) => {
     
     await prisma.wishlistItem.deleteMany({
       where: {
-        userId: req.user.id,
+        userId: req.user.userId || req.user.id,
         productId: productId
       }
     });

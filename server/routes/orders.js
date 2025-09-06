@@ -1,38 +1,54 @@
 import express from 'express';
-import { PrismaClient } from '../../node_modules/@prisma/client/index.js';
 import { authenticateJWT } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
+import prisma from '../prisma.js';
 
 const router = express.Router();
 
-const prisma = new PrismaClient();
+// Use the shared Prisma client instance from ../prisma.js
 
 // Create new order
 router.post('/', authenticateJWT, async (req, res) => {
   try {
-    const { productId, buyerId, sellerId, amount, paymentReference, shippingAddress, notes, status } = req.body;
+    const { productId, paymentReference, shippingAddress, notes, status } = req.body;
     
     // Validate required fields
-    if (!productId || !buyerId || !sellerId || !amount || !paymentReference || !shippingAddress) {
+    if (!productId || !paymentReference || !shippingAddress) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // Trust server-side data for sellerId and amount
+    const productRecord = await prisma.product.findUnique({ where: { id: productId } });
+    if (!productRecord) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    const sellerId = productRecord.sellerId;
+    const amount = productRecord.price;
+    const buyerId = req.user.userId || req.user.id;
+
+    // Calculate commission
+    const commissionRate = 0.05; // 5% commission
+    const commissionAmount = amount * commissionRate;
+    const sellerAmount = amount - commissionAmount;
 
     // Create order
     const order = await prisma.order.create({
       data: {
         productId,
+        sellerId: productRecord.sellerId,
         buyerId,
-        sellerId,
         amount,
         paymentReference,
         shippingAddress: JSON.stringify(shippingAddress),
         notes,
-        status,
-        createdAt: new Date(),
-        updatedAt: new Date()
+        status: status || 'pending',
+        commissionRate,
+        commissionAmount,
+        sellerAmount,
+        paymentStatus: 'paid'
       },
       include: {
-        product: true,
+        product: { include: { images: true } },
         buyer: true,
         seller: true
       }
@@ -78,10 +94,39 @@ router.post('/', authenticateJWT, async (req, res) => {
       // Don't fail the order creation if emails fail
     }
 
+    // Create in-app notifications for buyer and seller (best-effort)
+    try {
+      // Buyer notification
+      await prisma.notification.create({
+        data: {
+          userId: order.buyerId,
+          type: 'order',
+          title: 'Order placed successfully',
+          message: `Your order ${order.id} for ${order.product.title} has been placed.`,
+          data: JSON.stringify({ orderId: order.id, productId: order.productId, status: order.status }),
+        },
+      });
+      // Seller notification
+      await prisma.notification.create({
+        data: {
+          userId: order.sellerId,
+          type: 'order',
+          title: 'New order received',
+          message: `You received a new order ${order.id} for ${order.product.title}.`,
+          data: JSON.stringify({ orderId: order.id, productId: order.productId, buyerId: order.buyerId }),
+        },
+      });
+    } catch (notifErr) {
+      console.error('Failed to create notifications:', notifErr);
+      // Do not fail request on notification errors
+    }
+
     res.status(201).json(order);
   } catch (error) {
     console.error('Error creating order:', error);
-    res.status(500).json({ error: 'Failed to create order' });
+    console.error('Error details:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to create order', details: error.message });
   }
 });
 
@@ -96,8 +141,9 @@ router.get('/', authenticateJWT, async (req, res) => {
       orders = await prisma.order.findMany({
         where: { sellerId: userId },
         include: {
-          product: true,
-          buyer: true
+          product: { include: { images: true } },
+          buyer: true,
+          seller: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -105,8 +151,9 @@ router.get('/', authenticateJWT, async (req, res) => {
       orders = await prisma.order.findMany({
         where: { buyerId: userId },
         include: {
-          product: true,
-          seller: true
+          product: { include: { images: true } },
+          seller: true,
+          buyer: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -134,7 +181,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
         ]
       },
       include: {
-        product: true,
+        product: { include: { images: true } },
         buyer: true,
         seller: true
       }
@@ -165,7 +212,7 @@ router.patch('/:id/status', authenticateJWT, async (req, res) => {
         sellerId: userId
       },
       include: {
-        product: true,
+        product: { include: { images: true } },
         buyer: true,
         seller: true
       }
@@ -175,15 +222,27 @@ router.patch('/:id/status', authenticateJWT, async (req, res) => {
       return res.status(404).json({ error: 'Order not found or unauthorized' });
     }
 
+    // Set delivery date and auto-release date if status is delivered
+    const updateData = { 
+      status,
+      updatedAt: new Date()
+    };
+
+    if (status === 'delivered') {
+      const deliveredAt = new Date();
+      const autoReleaseDate = new Date();
+      autoReleaseDate.setDate(autoReleaseDate.getDate() + 7); // Auto-release after 7 days
+      
+      updateData.deliveredAt = deliveredAt;
+      updateData.autoReleaseDate = autoReleaseDate;
+    }
+
     // Update order status
     const updatedOrder = await prisma.order.update({
       where: { id },
-      data: { 
-        status,
-        updatedAt: new Date()
-      },
+      data: updateData,
       include: {
-        product: true,
+        product: { include: { images: true } },
         buyer: true,
         seller: true
       }
@@ -204,6 +263,21 @@ router.patch('/:id/status', authenticateJWT, async (req, res) => {
       });
     } catch (emailError) {
       console.error('Failed to send status update email:', emailError);
+    }
+
+    // Create in-app notification for buyer about status change (best-effort)
+    try {
+      await prisma.notification.create({
+        data: {
+          userId: order.buyerId,
+          type: 'order',
+          title: `Order ${status}`,
+          message: `Your order ${order.id} for ${order.product.title} is now ${status}.`,
+          data: JSON.stringify({ orderId: order.id, status }),
+        },
+      });
+    } catch (notifErr) {
+      console.error('Failed to create status notification:', notifErr);
     }
 
     res.json(updatedOrder);

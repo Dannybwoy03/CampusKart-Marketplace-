@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Truck, CheckCircle, XCircle, Clock, User, MapPin, Calendar } from "lucide-react";
+import { Package, Truck, CheckCircle, XCircle, Clock, User, MapPin, Calendar, Bell } from "lucide-react";
 
 interface Order {
   id: string;
@@ -28,23 +28,49 @@ interface Order {
   };
   amount: number;
   status: string;
+  paymentStatus: string;
   createdAt: string;
   shippingAddress: string;
   notes?: string;
+  sellerAmount?: number;
+  transferredAt?: string;
+}
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: string;
+  isRead: boolean;
+  createdAt: string;
 }
 
 export default function OrdersPage() {
   const { user, token } = useAuth();
   const { toast } = useToast ? useToast() : { toast: () => {} };
   const [orders, setOrders] = useState<Order[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("buyer");
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     if (user) {
       fetchOrders();
+      fetchNotifications();
     }
   }, [user, activeTab]);
+
+  // Poll for new notifications every 30 seconds
+  useEffect(() => {
+    if (user) {
+      const interval = setInterval(() => {
+        fetchNotifications();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   const fetchOrders = async () => {
     try {
@@ -57,6 +83,13 @@ export default function OrdersPage() {
 
       if (res.ok) {
         const data = await res.json();
+        console.log(`📋 Orders Page (${role}):`, data);
+        console.log(`📋 Orders with payment status:`, data.map((o: any) => ({
+          id: o.id.slice(-8),
+          paymentStatus: o.paymentStatus,
+          sellerAmount: o.sellerAmount,
+          transferredAt: o.transferredAt
+        })));
         setOrders(data);
       } else {
         throw new Error("Failed to fetch orders");
@@ -65,6 +98,99 @@ export default function OrdersPage() {
       toast({ title: "Error", description: "Failed to fetch orders" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/auth/notifications", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const orderNotifications = data.filter((notif: Notification) => notif.type === 'order');
+        setNotifications(orderNotifications);
+        
+        // Show toast for new unread notifications
+        const newUnread = orderNotifications.filter((notif: Notification) => !notif.isRead);
+        if (newUnread.length > 0 && notifications.length > 0) {
+          const hasNewNotifications = newUnread.some((notif: Notification) => 
+            !notifications.find(existing => existing.id === notif.id)
+          );
+          if (hasNewNotifications) {
+            toast({ 
+              title: "New Order Notification", 
+              description: `You have ${newUnread.length} new order notification(s)` 
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/auth/notifications/${notificationId}/read`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        // Update local state
+        setNotifications(prev => 
+          prev.map(notif => 
+            notif.id === notificationId ? { ...notif, isRead: true } : notif
+          )
+        );
+      }
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
+    }
+  };
+
+  const deleteNotification = async (notificationId: string) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/auth/notifications/${notificationId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        // Remove from local state
+        setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
+        toast({ title: "Success", description: "Notification deleted" });
+      }
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+      toast({ title: "Error", description: "Failed to delete notification" });
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/auth/notifications/mark-all-read", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        // Update local state
+        setNotifications(prev => prev.map(notif => ({ ...notif, isRead: true })));
+        toast({ title: "Success", description: "All notifications marked as read" });
+      }
+    } catch (error) {
+      console.error("Failed to mark all notifications as read:", error);
     }
   };
 
@@ -224,8 +350,95 @@ export default function OrdersPage() {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
-        <p className="text-gray-600">Manage your orders and track their status</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
+            <p className="text-gray-600">Manage your orders and track their status</p>
+          </div>
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="relative"
+            >
+              <Bell className="h-4 w-4" />
+              {notifications.filter(n => !n.isRead).length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {notifications.filter(n => !n.isRead).length}
+                </span>
+              )}
+            </Button>
+            
+            {showNotifications && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                <div className="p-3 border-b flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900">Order Notifications</h3>
+                  {notifications.filter(n => !n.isRead).length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={markAllAsRead}
+                      className="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      Mark all read
+                    </Button>
+                  )}
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      No notifications
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        className={`p-3 border-b hover:bg-gray-50 ${
+                          !notification.isRead ? 'bg-blue-50' : ''
+                        }`}
+                        onClick={() => !notification.isRead && markNotificationAsRead(notification.id)}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0">
+                            <Package className="h-5 w-5 text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900">
+                              {notification.title}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              {notification.message}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(notification.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex-shrink-0 flex items-center space-x-1">
+                            {!notification.isRead && (
+                              <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteNotification(notification.id);
+                              }}
+                              className="h-6 w-6 p-0 text-gray-400 hover:text-red-600"
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -287,8 +500,8 @@ export default function OrdersPage() {
                             <User className="h-4 w-4 text-gray-500" />
                             <span className="text-sm text-gray-600">Seller</span>
                           </div>
-                          <p className="font-medium text-gray-900">{order.seller.name}</p>
-                          <p className="text-sm text-gray-600">{order.seller.email}</p>
+                          <p className="font-medium text-gray-900">{order.seller?.name || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">{order.seller?.email || 'N/A'}</p>
                         </div>
 
                         {/* Shipping Info */}
@@ -368,6 +581,23 @@ export default function OrdersPage() {
                           <div>
                             <h3 className="font-semibold text-gray-900">{order.product.title}</h3>
                             <p className="text-lg font-bold text-green-600">₵{order.amount}</p>
+                            {order.paymentStatus === "released" && (
+                              <div className="mt-2">
+                                <Badge className="bg-green-100 text-green-800">
+                                  Payment Released
+                                </Badge>
+                                {order.sellerAmount && (
+                                  <p className="text-sm text-green-600 mt-1">
+                                    You received: ₵{order.sellerAmount}
+                                  </p>
+                                )}
+                                {order.transferredAt && (
+                                  <p className="text-xs text-gray-500">
+                                    Transferred: {formatDate(order.transferredAt)}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -377,8 +607,8 @@ export default function OrdersPage() {
                             <User className="h-4 w-4 text-gray-500" />
                             <span className="text-sm text-gray-600">Buyer</span>
                           </div>
-                          <p className="font-medium text-gray-900">{order.buyer.name}</p>
-                          <p className="text-sm text-gray-600">{order.buyer.email}</p>
+                          <p className="font-medium text-gray-900">{order.buyer?.name || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">{order.buyer?.email || 'N/A'}</p>
                         </div>
 
                         {/* Shipping Info */}
