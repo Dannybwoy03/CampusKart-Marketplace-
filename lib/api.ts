@@ -1,6 +1,13 @@
 import { useAuth } from "../components/AuthContext";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api` : "http://localhost:5000/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL 
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api` 
+  : typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+    ? "/api" 
+    : "http://localhost:5000/api";
+
+// Export the API base URL for use in other components
+export const getApiUrl = () => API_BASE_URL;
 
 export async function apiFetch(
   path: string,
