@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
-
-const prisma = new PrismaClient();
+import prisma from '../../../lib/prisma.js';
 
 // Middleware to verify JWT token
 function verifyToken(request) {
@@ -21,6 +19,9 @@ function verifyToken(request) {
 
 export async function GET(request) {
   try {
+    console.log('API: Fetching products...');
+    console.log('DATABASE_URL exists:', !!process.env.DATABASE_URL);
+    
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
     const search = searchParams.get('search');
@@ -51,18 +52,23 @@ export async function GET(request) {
           select: {
             id: true,
             name: true,
-            email: true,
-            university: true
+            email: true
           }
         }
       },
       orderBy: { createdAt: 'desc' }
     });
 
+    console.log('API: Found', products.length, 'products');
     return NextResponse.json(products);
   } catch (error) {
     console.error('Get products error:', error);
-    return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
+    console.error('Error details:', error.message);
+    return NextResponse.json({ 
+      error: 'Failed to fetch products', 
+      details: error.message,
+      hasDbUrl: !!process.env.DATABASE_URL 
+    }, { status: 500 });
   }
 }
 
